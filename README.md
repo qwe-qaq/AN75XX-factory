@@ -215,6 +215,9 @@ an758x-factory --export-mt76 factory-an4475-2mib.bin mt7990_eeprom.bin
 an758x-factory --export-an mtd9_factory.bin factory-an4475-aponcal.bin --pon-aponcal
 python3 an758x_factory_demo.py an4475 --bin mtd9_factory.bin \
     -o factory-an4475-aponcal.bin --pon-aponcal
+
+# GPON SN 两种写法都收（`FHTT` + 8 位 hex 或 16 位 hex），规则同 fiberhome-factory
+an758x-factory --export-an mtd9_factory.bin out.bin --gpon-sn FHTTC26A69FF
 ```
 
 示例产物见 [`examples/factory-h3c-demo.bin`](examples/factory-h3c-demo.bin)、
@@ -462,6 +465,28 @@ an758x-factory --export-an mtd9_factory.bin out.bin --pon-aponcal
 - **SN = `F3200` + 基准 MAC 的 12 位 hex**：`F3200` + `D49F2904E750` = `F3200D49F2904E750`（17 字符）。界面上的「按 MAC 生成」就是这条。
 - **GPON SN = ASCII `FHTT` + 4 字节**：真机 `46485454C26A69FF` → `FHTT` + `C2 6A 69 FF`。这 4 字节与 MAC/SN 无对应关系，只能单独填。
 - **GPON 密码是 hex 编码的 ASCII**：`48473236303132333435` → `HG26012345`。
+
+#### GPON SN 的两种写法（与 fiberhome-factory 一致）
+
+同一个 8 字节有两种说法，工具两种都收、也都能显示：
+
+| 写法 | 例子 | 用在哪 |
+|---|---|---|
+| 厂商码 + 8 位 hex | `FHTTC26A69FF` | 贴纸、工单、`random_sn()` |
+| 16 位 hex | `46485454C26A69FF` | UCI `GponSN`、头部 `0x38` 原样 |
+
+解析顺序照搬上游 `display_sn()`：**先**看是不是 12 个字符且前 4 个是 ASCII 字母数字，是就按「4 字节 ASCII + 4 字节 hex」拆；**否则**整串（容忍 `:` `-`）当 16 位 hex 解 8 字节，并拒绝全 `00` / 全 `FF`。
+
+读回时反过来：前 4 字节都是字母数字就拼成 `FHTT` + 8 位 hex，否则给 16 位 hex（厂商码不是 ASCII 的老设备）。
+
+界面上输入框右侧实时显示「写进去的 8 字节」，格式不对直接红字，**保存会被拒绝**（旧版是静默保留原值，漏一位都看不出来）。`随机` 按钮同上游 `random_sn()`：`FHTT` + 4 字节随机。
+
+命令行的 `--gpon-sn` 走同一套解析，两种写法产出的镜像逐字节相同：
+
+```bash
+an758x-factory --export-an mtd9_factory.bin out.bin --gpon-sn FHTTC26A69FF
+an758x-factory --export-an mtd9_factory.bin out.bin --gpon-sn 46485454C26A69FF  # 等价
+```
 
 工具在派生表下方做唯一性自检：12 个地址（基准 + 4 个网络侧 + 5 个 LAN + 2 个 Wi-Fi）出现重复就红字点名，例如「MAC 冲突：D4:A0:29:04:E7:71 同时用于 eth1mac / Wi-Fi 2.4G」。原厂这套分配本身不冲突（`D4:9F` 段占 50–53/58，`D4:A0` 段占 50/58 与 71–75，两个前缀互不相干），冲突只可能来自手改；另一种「冲突」是整片镜像刷到第二台机 —— 那时 12 个地址全都重复，只能靠每台重新生成，工具没法代劳。
 
